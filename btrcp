@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Kontrola počtu argumentů
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <source_directory> <destination_directory>"
+    exit 1
+fi
+
+SRC="$1"
+DEST="$2"
+
+# Kopírování standardních dat pomocí rsync
+rsync -aHAXxv --delete --exclude='*.snapshots' "$SRC/" "$DEST/"
+
+# Získání seznamu subvolumes
+SUBVOLS=$(btrfs subvolume list "$SRC" | awk '{ print $NF }')
+
+# Kopírování subvolumes pomocí btrfs send/receive
+for SUBVOL in $SUBVOLS; do
+    SRC_SUBVOL="$SRC/$SUBVOL"
+    DEST_SUBVOL="$DEST/$SUBVOL"
+    
+    # Pokud cílový subvolume již existuje, smažeme ho (protože chceme aktualizovat data)
+    if [ -d "$DEST_SUBVOL" ]; then
+        btrfs subvolume delete "$DEST_SUBVOL"
+    fi
+
+    # Vytvoření rodičovského adresáře pro cílový subvolume
+    mkdir -p "$(dirname "$DEST_SUBVOL")"
+    
+    # Provedení send/receive
+    btrfs send "$SRC_SUBVOL" | btrfs receive "$(dirname "$DEST_SUBVOL")"
+done
+
+echo "Done!"
