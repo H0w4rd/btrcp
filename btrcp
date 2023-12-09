@@ -17,9 +17,10 @@ SUBVOLS=$(btrfs subvolume list "$SRC" | awk '{ print $NF }')
 
 # Copy subvolumes using btrfs send/receive
 for SUBVOL in $SUBVOLS; do
-    SRC_SUBVOL="$SRC/$SUBVOL"
+    SRC_SUBVOL="/$SUBVOL"
     DEST_SUBVOL="$DEST/$SUBVOL"
-    
+    readonly_set="false"
+
     # If the target subvolume already exists, delete it (because we want to update the data)
     if [ -d "$DEST_SUBVOL" ]; then
         btrfs subvolume delete "$DEST_SUBVOL"
@@ -27,9 +28,24 @@ for SUBVOL in $SUBVOLS; do
 
     # Create a subvolume in the destination directory
     mkdir -p "$(dirname "$DEST_SUBVOL")"
-    
+
+    # Check if SRC_SUBVOL is read-only
+    readonly_status=$(btrfs property get -ts "$SRC_SUBVOL" ro | awk '{print $NF}')
+
+    if [ "$readonly_status" != "true" ]; then
+        echo "Setting $SRC_SUBVOL as read-only"
+        btrfs property set -ts "$SRC_SUBVOL" ro true
+        readonly_set="true"
+    fi
+
     # Perform the send/receive
     btrfs send "$SRC_SUBVOL" | btrfs receive "$(dirname "$DEST_SUBVOL")"
+
+    # Unset read-only property if it was set
+    if [ "$readonly_set" == "true" ]; then
+        echo "Unsetting $SRC_SUBVOL as read-only"
+        btrfs property set -ts "$SRC_SUBVOL" ro false
+    fi
 done
 
 echo "Done!"
